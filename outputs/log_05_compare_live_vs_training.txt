@@ -1,0 +1,18 @@
+Live run: 3350 GNN invocations, 0 (0.0%) had the true object in the candidate pool, 3350 did not.
+
+Live min_dist, true_object_in_pool=True:
+  p1=nan  p5=nan  p10=nan  p25=nan  p50=nan  p75=nan  p90=nan  p95=nan  p99=nan  p100=nan
+Live min_dist, true_object_in_pool=False:
+  p1=0.2218  p5=0.2743  p10=0.3051  p25=0.3590  p50=0.4206  p75=0.4771  p90=0.5307  p95=0.5659  p99=0.6396  p100=0.8996
+
+Live decisions: {'NOVEL': 3310, 'AMBIGUOUS': 34, 'KNOWN': 6}
+Auto-calibrated from WITHIN-CLUSTER density (110 buckets, 9995 within-bucket pairs): nearest-neighbor gap (5th pct)=0.5327 -> DRIFT_TOLERANCE=0.1864, MARGIN_REQUIRED=0.0799
+Harvested 3370 live-loop examples over 133684 simulated detection events (20 true-object-in-pool / 3350 genuinely-novel-in-pool).
+
+Fresh harvested batch: 3370 examples, 20 (0.6%) true-object-in-pool.
+Fresh min_dist, true_object_in_pool=True:
+  p1=0.0011  p5=0.0024  p10=0.1574  p25=0.2598  p50=0.3068  p75=0.3794  p90=0.5006  p95=0.5118  p99=0.5387  p100=0.5454
+Fresh min_dist, true_object_in_pool=False:
+  p1=0.2311  p5=0.2841  p10=0.3236  p25=0.3850  p50=0.4433  p75=0.5074  p90=0.5655  p95=0.5961  p99=0.6779  p100=0.9546
+
+If the live and fresh percentile rows above (for the same true_object_in_pool value) look substantially different, the harvester's live-loop simulation no longer matches the real tracking sim's actual dynamics -- re-check catalog_gnn.harvest_live_loop_examples()'s parameters (embed_fraction, register_prob, noise settings, plausibility_multiple) against ground_station_tracking_simulation.py's current config before trusting any checkpoint trained against it.

@@ -24,6 +24,7 @@ Usage:
 """
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -34,7 +35,9 @@ from ground_station_tracking_simulation import (
     CATALOG_PATH, EMBEDDINGS_PATH, FALLBACK_NPZ_PATH, DRIFT_TOLERANCE, MARGIN_REQUIRED,
 )
 
-LIVE_LOG_PATH = "outputs/gnn_live_invocations.json"
+# Anchored to repo root, same convention as identity_embedding.py.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+LIVE_LOG_PATH = str(REPO_ROOT / "outputs" / "gnn_live_invocations.json")
 
 
 def _percentiles(values, pcts=(1, 5, 10, 25, 50, 75, 90, 95, 99, 100)):

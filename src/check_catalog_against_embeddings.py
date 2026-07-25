@@ -14,6 +14,7 @@ At the end, print a summary: counts, hit rate, and timing stats.
 
 import time
 import pandas as pd
+from pathlib import Path
 
 try:
     import torch
@@ -22,11 +23,18 @@ except ImportError:
     TORCH_AVAILABLE = False
 
 # ---------------------------------------------------------------------
-# Config (relative paths — run from the same directory as the files)
+# Config -- anchored to repo root (see identity_embedding.py's comment
+# on this convention), so this runs identically from repo root or from
+# inside src/, regardless of invocation cwd.
+#
+# NOTE: FALLBACK_NPZ_PATH previously lacked the outputs/ prefix that
+# every other script's fallback path has (a pre-existing inconsistency,
+# not introduced by this reorganization) -- corrected here to match.
 # ---------------------------------------------------------------------
-CATALOG_PATH = "leo_catalog.csv"
-EMBEDDINGS_PATH = "outputs/leo_embeddings.pt"
-FALLBACK_NPZ_PATH = "leo_embeddings.npz"  # used only if torch/.pt isn't available
+REPO_ROOT = Path(__file__).resolve().parent.parent
+CATALOG_PATH = str(REPO_ROOT / "data" / "leo_catalog.csv")
+EMBEDDINGS_PATH = str(REPO_ROOT / "outputs" / "leo_embeddings.pt")
+FALLBACK_NPZ_PATH = str(REPO_ROOT / "outputs" / "leo_embeddings.npz")
 
 
 def load_embedding_names(pt_path: str, npz_fallback: str) -> set:

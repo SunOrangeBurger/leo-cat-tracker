@@ -73,10 +73,19 @@ except ImportError:
 
 # ---------------------------------------------------------------------
 # Config
+#
+# Paths are anchored to the repo root (parent of this file's src/
+# directory) via pathlib, rather than plain relative strings -- this
+# makes every script runnable identically whether invoked as
+# `python src/identity_embedding.py` from the repo root (how
+# run_full_evaluation.py invokes it) or `python identity_embedding.py`
+# from inside src/ directly.
 # ---------------------------------------------------------------------
-CATALOG_INPUT_PATH = "leo_catalog.csv"
-OUTPUT_PATH = "outputs/leo_embeddings.pt"
-FALLBACK_NPZ_PATH = "outputs/leo_embeddings.npz"
+from pathlib import Path
+REPO_ROOT = Path(__file__).resolve().parent.parent
+CATALOG_INPUT_PATH = str(REPO_ROOT / "data" / "leo_catalog.csv")
+OUTPUT_PATH = str(REPO_ROOT / "outputs" / "leo_embeddings.pt")
+FALLBACK_NPZ_PATH = str(REPO_ROOT / "outputs" / "leo_embeddings.npz")
 
 N_OBJECTS = None
 EMBED_FRACTION = 0.5     # fraction of the catalog the ground station "knows about"
@@ -412,6 +421,10 @@ def physics_consistency_residual(cand_a, cand_e, cand_i, cand_raan, cand_argp, c
 
 
 def main():
+    # Ensure outputs/ exists (matters on a fresh checkout before any other
+    # stage has run and created it).
+    Path(OUTPUT_PATH).parent.mkdir(parents=True, exist_ok=True)
+
     catalog_df = pd.read_csv(CATALOG_INPUT_PATH)
     full_count = len(catalog_df)
 

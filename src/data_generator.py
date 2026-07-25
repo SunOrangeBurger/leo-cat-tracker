@@ -37,6 +37,7 @@ Pipeline order (see README.md section 5):
 import csv
 import random
 import argparse
+from pathlib import Path
 
 import orbital_physics as op
 
@@ -140,6 +141,10 @@ def generate_catalog(n, seed=None):
 def write_csv(rows, path):
     fieldnames = ["name", "a", "e", "i", "Omega", "omega", "nu", "type",
                   "size_meters", "rcs", "bc_m2_per_kg"]
+    # Create the parent directory (e.g. data/) if it doesn't exist yet --
+    # matters now that the default output path points outside src/, so a
+    # fresh checkout's data/ directory may not exist until this first run.
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
@@ -148,9 +153,16 @@ def write_csv(rows, path):
 
 
 def main():
+    # Anchored to repo root (see identity_embedding.py's comment on this
+    # convention) so the default output path is correct whether this is
+    # invoked as `python src/data_generator.py` from repo root (how
+    # run_full_evaluation.py invokes it) or `python data_generator.py`
+    # from inside src/.
+    default_output = str((Path(__file__).resolve().parent.parent / "data" / "leo_catalog.csv"))
+
     parser = argparse.ArgumentParser(description="Generate synthetic LEO Keplerian catalog data.")
     parser.add_argument("-n", "--num", type=int, default=20000, help="Number of objects to generate")
-    parser.add_argument("-o", "--output", type=str, default="leo_catalog.csv", help="Output CSV path")
+    parser.add_argument("-o", "--output", type=str, default=default_output, help="Output CSV path")
     parser.add_argument("-s", "--seed", type=int, default=None, help="Random seed for reproducibility")
     args = parser.parse_args()
 

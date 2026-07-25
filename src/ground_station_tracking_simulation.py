@@ -52,6 +52,7 @@ import heapq
 import time
 import numpy as np
 import pandas as pd
+from pathlib import Path
 
 import orbital_physics as op
 import identity_embedding as embed_mod
@@ -67,10 +68,20 @@ except ImportError:
 
 # ---------------------------------------------------------------------
 # Config
+#
+# Anchored to repo root (see identity_embedding.py's comment on this
+# convention) so this script runs identically from repo root or from
+# inside src/.
 # ---------------------------------------------------------------------
-CATALOG_PATH = "leo_catalog.csv"
-EMBEDDINGS_PATH = "outputs/leo_embeddings.pt"
-FALLBACK_NPZ_PATH = "outputs/leo_embeddings.npz"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+CATALOG_PATH = str(REPO_ROOT / "data" / "leo_catalog.csv")
+EMBEDDINGS_PATH = str(REPO_ROOT / "outputs" / "leo_embeddings.pt")
+FALLBACK_NPZ_PATH = str(REPO_ROOT / "outputs" / "leo_embeddings.npz")
+# Matches compare_live_vs_training.py's own LIVE_LOG_PATH constant --
+# defined here too (rather than only relied on as a bare string at the
+# write site below) so both scripts agree on the same anchored location
+# regardless of invocation cwd.
+LIVE_LOG_PATH = str(REPO_ROOT / "outputs" / "gnn_live_invocations.json")
 
 ACCELERATION_FACTOR = 300          # sim-seconds run this much faster than real orbital seconds
 SIMULATION_DURATION_SECONDS = 60   # simulated seconds to run
@@ -919,12 +930,11 @@ def main():
 
     if gnn_invocation_log:
         import json
-        import os
-        os.makedirs("outputs", exist_ok=True)
-        with open("outputs/gnn_live_invocations.json", "w") as f:
+        Path(LIVE_LOG_PATH).parent.mkdir(parents=True, exist_ok=True)
+        with open(LIVE_LOG_PATH, "w") as f:
             json.dump(gnn_invocation_log, f)
         print(f"\nWrote {len(gnn_invocation_log)} live GNN invocations to "
-              f"outputs/gnn_live_invocations.json -- compare against a fresh training batch "
+              f"{LIVE_LOG_PATH} -- compare against a fresh training batch "
               f"with compare_live_vs_training.py.")
 
 

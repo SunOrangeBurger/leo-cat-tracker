@@ -58,14 +58,20 @@ def main():
     parser.add_argument("--false-known-penalty", type=float, default=3.0,
                          help="Asymmetric loss weight on false-KNOWN errors (README 4.4).")
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--min-known-examples", type=int, default=None,
+    parser.add_argument("--min-known-examples", type=int, default=400,
                          help="Minimum known-in-pool (true object present in candidate pool) "
                               "examples the harvester must collect before stopping, regardless "
                               "of how many genuinely-novel examples it already has. Defaults to "
-                              "the harvester's own max(20, n_examples // 400), which is too small "
-                              "to train or validate the confident_novel_threshold reliably -- if "
-                              "val_recall(known) is stuck at 0.000 during training, or the "
-                              "calibrated thresholds are both near 0, raise this (e.g. 300-500).")
+                              "400 (raised from the harvester's own max(20, n_examples // 400) "
+                              "floor, which was empirically too small -- it produced an "
+                              "n_known_val in the single digits, causing val_loss/val_recall(known) "
+                              "to be dominated by noise from a handful of examples rather than a "
+                              "reliable signal; see run_full_evaluation.py's "
+                              "07_gnn_training_curve.png for what that looked like: val_recall "
+                              "jumping between exact fractions like 1/6, 2/6, 3/6 and val_loss "
+                              "diverging late in training). Pass --min-known-examples 30 (or omit "
+                              "and edit this default) to restore the old fast/small behavior for "
+                              "quick smoke tests where validation reliability doesn't matter.")
     args = parser.parse_args()
 
     truth_df = pd.read_csv(CATALOG_PATH)

@@ -81,11 +81,26 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 _PRINT_LOCK = threading.Lock()
 
-RESULTS_PATH = "outputs/eval_results.json"
-PLOTS_DIR = "outputs/eval_plots"
+# This script lives at repo root; src/ and outputs/ are siblings of it.
+# Anchored via pathlib (same convention as every src/ script) so it runs
+# correctly regardless of invocation cwd, not just when cwd happens to be
+# the repo root.
+REPO_ROOT = Path(__file__).resolve().parent
+SRC_DIR = REPO_ROOT / "src"
+OUTPUTS_DIR = REPO_ROOT / "outputs"
+DATA_DIR = REPO_ROOT / "data"
+
+RESULTS_PATH = str(OUTPUTS_DIR / "eval_results.json")
+PLOTS_DIR = str(OUTPUTS_DIR / "eval_plots")
+
+
+def src(script_name):
+    """Path to a pipeline script under src/, as a string (for subprocess cmd lists)."""
+    return str(SRC_DIR / script_name)
 
 
 # ===========================================================================
@@ -413,24 +428,28 @@ def parse_check_catalog(lines):
 # Pipeline driver
 # ===========================================================================
 def run_pipeline(args):
-    os.makedirs("outputs", exist_ok=True)
+    os.makedirs(OUTPUTS_DIR, exist_ok=True)
+    os.makedirs(DATA_DIR, exist_ok=True)
     results = {"config": vars(args), "stages": {}}
     py = sys.executable
+    catalog_path = str(DATA_DIR / "leo_catalog.csv")
 
-    # ---- Stage 1: data_generator.py -> leo_catalog.csv --------------------
+    # ---- Stage 1: data_generator.py -> data/leo_catalog.csv ---------------
     if not args.skip_generate:
-        gen_cmd = [py, "data_generator.py", "-n", str(args.n), "-o", "leo_catalog.csv"]
+        gen_cmd = [py, src("data_generator.py"), "-n", str(args.n), "-o", catalog_path]
         if args.seed is not None:
             gen_cmd += ["-s", str(args.seed)]
-        lines, elapsed = run_stage("data_generator.py", gen_cmd, "outputs/log_01_data_generator.txt")
+        lines, elapsed = run_stage("data_generator.py", gen_cmd,
+                                    str(OUTPUTS_DIR / "log_01_data_generator.txt"))
         results["stages"]["data_generator"] = {**parse_data_generator(lines), "elapsed_s": elapsed}
     else:
-        print("Skipping data_generator.py (--skip-generate); reusing leo_catalog.csv")
+        print(f"Skipping data_generator.py (--skip-generate); reusing {catalog_path}")
 
     # ---- Stage 2: identity_embedding.py -> outputs/leo_embeddings.pt ------
     if not args.skip_embed:
-        embed_cmd = [py, "identity_embedding.py"]
-        lines, elapsed = run_stage("identity_embedding.py", embed_cmd, "outputs/log_02_identity_embedding.txt")
+        embed_cmd = [py, src("identity_embedding.py")]
+        lines, elapsed = run_stage("identity_embedding.py", embed_cmd,
+                                    str(OUTPUTS_DIR / "log_02_identity_embedding.txt"))
         results["stages"]["identity_embedding"] = {**parse_identity_embedding(lines), "elapsed_s": elapsed}
     else:
         print("Skipping identity_embedding.py (--skip-embed); reusing outputs/leo_embeddings.pt")
@@ -447,29 +466,29 @@ def run_pipeline(args):
     def do_train_and_sim():
         stage_results = {}
         if not args.skip_train:
-            train_cmd = [py, "train_catalog_gnn.py", "--n-examples", str(args.n_examples),
+            train_cmd = [py, src("train_catalog_gnn.py"), "--n-examples", str(args.n_examples),
                          "--epochs", str(args.epochs)]
             if args.min_known_examples is not None:
                 train_cmd += ["--min-known-examples", str(args.min_known_examples)]
             lines, elapsed = run_stage("train_catalog_gnn.py", train_cmd,
-                                        "outputs/log_03_train_catalog_gnn.txt",
+                                        str(OUTPUTS_DIR / "log_03_train_catalog_gnn.txt"),
                                         prefix_output=not args.sequential)
             stage_results["train_catalog_gnn"] = {**parse_train_catalog_gnn(lines), "elapsed_s": elapsed}
         else:
             with _PRINT_LOCK:
                 print("Skipping train_catalog_gnn.py (--skip-train); reusing outputs/catalog_gnn.pt")
 
-        sim_cmd = [py, "ground_station_tracking_simulation.py"]
+        sim_cmd = [py, src("ground_station_tracking_simulation.py")]
         lines, elapsed = run_stage("ground_station_tracking_simulation.py", sim_cmd,
-                                    "outputs/log_04_tracking_simulation.txt",
+                                    str(OUTPUTS_DIR / "log_04_tracking_simulation.txt"),
                                     prefix_output=not args.sequential)
         stage_results["tracking_simulation"] = {**parse_tracking_sim(lines), "elapsed_s": elapsed}
         return stage_results
 
     def do_embedding_check():
-        check_cmd = [py, "check_catalog_against_embeddings.py"]
+        check_cmd = [py, src("check_catalog_against_embeddings.py")]
         lines, elapsed = run_stage("check_catalog_against_embeddings.py", check_cmd,
-                                    "outputs/log_06_check_catalog_against_embeddings.txt",
+                                    str(OUTPUTS_DIR / "log_06_check_catalog_against_embeddings.txt"),
                                     prefix_output=not args.sequential)
         return {"check_catalog_against_embeddings": {**parse_check_catalog(lines), "elapsed_s": elapsed}}
 
@@ -494,16 +513,17 @@ def run_pipeline(args):
     # ---- Stage 5: compare_live_vs_training.py ------------------------------
     # Hard-blocked on the sim's own output file -- cannot start any earlier
     # than this, concurrently or otherwise (see module docstring).
+    live_log_path = OUTPUTS_DIR / "gnn_live_invocations.json"
     live_log = None
-    if os.path.exists("outputs/gnn_live_invocations.json"):
-        with open("outputs/gnn_live_invocations.json") as fh:
+    if live_log_path.exists():
+        with open(live_log_path) as fh:
             live_log = json.load(fh)
     results["gnn_live_invocations"] = live_log
 
     if live_log:
-        cmp_cmd = [py, "compare_live_vs_training.py"]
+        cmp_cmd = [py, src("compare_live_vs_training.py")]
         lines, elapsed = run_stage("compare_live_vs_training.py", cmp_cmd,
-                                    "outputs/log_05_compare_live_vs_training.txt")
+                                    str(OUTPUTS_DIR / "log_05_compare_live_vs_training.txt"))
         results["stages"]["compare_live_vs_training"] = {**parse_compare_live_vs_training(lines),
                                                            "elapsed_s": elapsed}
     else:

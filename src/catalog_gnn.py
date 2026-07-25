@@ -42,6 +42,7 @@ contract + training distribution), not the symptom:
 """
 
 import numpy as np
+from pathlib import Path
 
 import orbital_physics as op
 import identity_embedding as embed_mod
@@ -69,7 +70,10 @@ EXTRA_FEAT_DIM = 1 + 1 + 1 + 5 + 1
 NODE_FEAT_DIM = IDENTITY_DIM + EXTRA_FEAT_DIM   # 22
 HIDDEN = 32
 
-MODEL_PATH = "outputs/catalog_gnn.pt"
+# Anchored to repo root, same convention as identity_embedding.py -- see
+# that file's comment for why (works regardless of invocation cwd).
+REPO_ROOT = Path(__file__).resolve().parent.parent
+MODEL_PATH = str(REPO_ROOT / "outputs" / "catalog_gnn.pt")
 
 # Heuristic normalization constants for the physics-residual features, so
 # each residual element lands roughly O(1)-O(10) instead of wildly
@@ -747,6 +751,10 @@ def train_model(truth_df, scalers, distance_weights, drift_tolerance, margin_req
     confident_known_threshold, confident_novel_threshold = calibrate_confidence_thresholds(
         model, val_examples, device
     )
+
+    # Ensure outputs/ exists (matters on a fresh checkout before any other
+    # stage has run and created it).
+    Path(MODEL_PATH).parent.mkdir(parents=True, exist_ok=True)
 
     torch.save({
         "state_dict": model.state_dict(),

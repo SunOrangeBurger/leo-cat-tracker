@@ -432,7 +432,7 @@ def run_pipeline(args):
     os.makedirs(DATA_DIR, exist_ok=True)
     results = {"config": vars(args), "stages": {}}
     py = sys.executable
-    catalog_path = str(DATA_DIR / "leo_catalog.csv")
+    catalog_path = str(DATA_DIR / "leo_catalog_60k.csv")
 
     # ---- Stage 1: data_generator.py -> data/leo_catalog.csv ---------------
     if not args.skip_generate:

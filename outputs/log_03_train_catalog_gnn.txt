@@ -1,33 +1,23 @@
-Auto-calibrated from WITHIN-CLUSTER density (106 buckets, 10000 within-bucket pairs): nearest-neighbor gap (5th pct)=0.5324 -> DRIFT_TOLERANCE=0.1863, MARGIN_REQUIRED=0.0799
-Truth population: 20000 objects (leo_catalog.csv)
-Embedding store: 10000 objects on record
-drift_tolerance=0.186325  margin_required=0.079854
+Auto-calibrated from WITHIN-CLUSTER density (115 buckets, 11496 within-bucket pairs): nearest-neighbor gap (5th pct)=0.3850 -> DRIFT_TOLERANCE=0.1347, MARGIN_REQUIRED=0.0577
+Truth population: 23000 objects (/home/arunhariharan/Projects/leo-catalog-tracker/data/leo_catalog.csv)
+Embedding store: 11500 objects on record
+drift_tolerance=0.134739  margin_required=0.057745
 ----------------------------------------------------------------------
-Traceback (most recent call last):
-  File "/home/arunhariharan/Projects/leo-catalog-tracker/train_catalog_gnn.py", line 114, in <module>
-    main()
-    ~~~~^^
-  File "/home/arunhariharan/Projects/leo-catalog-tracker/train_catalog_gnn.py", line 102, in main
-    model, confident_known_threshold, confident_novel_threshold = gnn_mod.load_or_train_model(
-                                                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
-        truth_df, scalers, distance_weights, drift_tolerance, margin_required,
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    ...<2 lines>...
-        min_known_examples=args.min_known_examples,
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    )
-    ^
-  File "/home/arunhariharan/Projects/leo-catalog-tracker/catalog_gnn.py", line 805, in load_or_train_model
-    return train_model(truth_df, scalers, distance_weights, drift_tolerance, margin_required,
-                        gate_stamp, n_examples=n_examples, epochs=epochs,
-                        false_known_penalty=false_known_penalty, seed=seed,
-                        min_known_examples=resolved_min_known_examples)
-  File "/home/arunhariharan/Projects/leo-catalog-tracker/catalog_gnn.py", line 674, in train_model
-    examples = harvest_live_loop_examples(
-        truth_df, scalers, distance_weights, drift_tolerance, margin_required,
-        n_examples=n_examples, seed=seed, min_known_examples=min_known_examples,
-    )
-  File "/home/arunhariharan/Projects/leo-catalog-tracker/catalog_gnn.py", line 391, in harvest_live_loop_examples
-    cand_bc = np.array([cat_bc[j] for j in candidate_idx])
-                        ~~~~~~^^^
-KeyboardInterrupt
+Harvested 12470 live-loop examples over 2334523 simulated detection events (470 true-object-in-pool / 12000 genuinely-novel-in-pool).
+epoch    0  train_loss=2.9167  val_loss=2.8718  val_fp_rate(novel called known)=0.926  val_recall(known)=1.000
+epoch   25  train_loss=2.2579  val_loss=2.2986  val_fp_rate(novel called known)=0.000  val_recall(known)=0.000
+epoch   50  train_loss=1.9255  val_loss=2.0452  val_fp_rate(novel called known)=0.065  val_recall(known)=0.175
+epoch   75  train_loss=1.4851  val_loss=1.6443  val_fp_rate(novel called known)=0.102  val_recall(known)=0.286
+epoch  100  train_loss=1.0230  val_loss=1.2294  val_fp_rate(novel called known)=0.139  val_recall(known)=0.635
+epoch  125  train_loss=0.7777  val_loss=1.0104  val_fp_rate(novel called known)=0.159  val_recall(known)=0.762
+epoch  150  train_loss=0.6444  val_loss=0.8951  val_fp_rate(novel called known)=0.153  val_recall(known)=0.794
+epoch  175  train_loss=0.5521  val_loss=0.8407  val_fp_rate(novel called known)=0.147  val_recall(known)=0.810
+epoch  200  train_loss=0.4757  val_loss=0.8199  val_fp_rate(novel called known)=0.139  val_recall(known)=0.746
+epoch  225  train_loss=0.4058  val_loss=0.8260  val_fp_rate(novel called known)=0.122  val_recall(known)=0.778
+epoch  249  train_loss=0.3474  val_loss=0.8914  val_fp_rate(novel called known)=0.102  val_recall(known)=0.683
+Restoring best checkpoint: epoch 200 (val_loss=0.8199), vs. final epoch 249.
+  (sanity check: 68.3% of 63 held-out known examples score above confident_novel_threshold -- target was 90%. If this is far off target, known_best_scores is too small/noisy to trust; raise min_known_examples rather than adjusting thresholds off of it.)
+Calibrated thresholds: confident_known=0.8806 confident_novel=0.6155 (n_known_val=63, n_novel_val=1807)
+Saved trained catalog GNN to /home/arunhariharan/Projects/leo-catalog-tracker/outputs/catalog_gnn.pt (checkpoint from epoch 200)
+Done. Saved to /home/arunhariharan/Projects/leo-catalog-tracker/outputs/catalog_gnn.pt
+confident_known_threshold=0.8806  confident_novel_threshold=0.6155

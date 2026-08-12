@@ -1,1 +1,1 @@
-Wrote 20000 rows to leo_catalog.csv
+Wrote 20000 rows to /home/arunhariharan/Projects/leo-catalog-tracker/data/leo_catalog.csv

@@ -1,3 +1,3 @@
-Catalog has 20000 objects; embedding 10000 of them (50%).
-Embedded 10000 objects into a 13-dimensional IDENTITY space (nu excluded).
-Wrote PyTorch tensor file to outputs/leo_embeddings.pt  (vectors shape: (10000, 13))
+Catalog has 23000 objects; embedding 11500 of them (50%).
+Embedded 11500 objects into a 13-dimensional IDENTITY space (nu excluded).
+Wrote PyTorch tensor file to /home/arunhariharan/Projects/leo-catalog-tracker/outputs/leo_embeddings.pt  (vectors shape: (11500, 13))

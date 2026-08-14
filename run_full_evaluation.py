@@ -331,6 +331,7 @@ def parse_tracking_sim(lines):
 
         detections.append({
             "sim_time": safe_f(sim_t),
+            "name": name,
             "status": status,
             "dist": safe_f(dist_s),
             "margin": safe_f(margin_s),
@@ -432,7 +433,7 @@ def run_pipeline(args):
     os.makedirs(DATA_DIR, exist_ok=True)
     results = {"config": vars(args), "stages": {}}
     py = sys.executable
-    catalog_path = str(DATA_DIR / "leo_catalog_60k.csv")
+    catalog_path = str(DATA_DIR / "leo_catalog.csv")
 
     # ---- Stage 1: data_generator.py -> data/leo_catalog.csv ---------------
     if not args.skip_generate:

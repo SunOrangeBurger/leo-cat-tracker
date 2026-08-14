@@ -142,6 +142,91 @@ class LiveCatalogANNIndex:
             return True
         return False
 
+    def needs_rebuild_for_query(self, weighted_query_vec, density_radius,
+                                 density_threshold, min_detections_since_rebuild=1):
+        """
+        Density-aware early-rebuild trigger (see leo_ann_index.py module
+        docstring point 1, and the "WHY A NAIVE... DOESN'T WORK HERE"
+        section -- this method is what makes that section's global
+        staleness-tolerance assumption locally correct instead of just
+        correct on average).
+
+        WHY THIS EXISTS: needs_rebuild() decides staleness using a single
+        GLOBAL cadence (REBUILD_EVERY detections) calibrated against the
+        catalog's overall drift/spacing tradeoff. That's the right call for
+        a catalog with roughly uniform object density -- but a dense
+        "shell" (many objects packed into a narrow band of orbital
+        elements, e.g. a real megaconstellation) can have local spacing far
+        tighter than the catalog-wide average the global cadence was
+        calibrated against. Ordinary between-rebuild drift that is provably
+        safe everywhere else in the catalog can, in that dense pocket, be
+        enough for a STALE tree to rank a decoy object closer than the true
+        match -- silently pushing the true match out of the candidate pool
+        entirely (see docs/ANN_DENSITY_AWARE_REBUILD.md for the measured
+        mechanism this was built to fix).
+
+        This method answers a narrower, cheaper question than a full
+        rebuild check: "is THIS SPECIFIC QUERY sitting in a pocket dense
+        enough, GIVEN however much staleness has accumulated since the
+        last rebuild, that the cached tree can no longer be trusted for
+        it?" It reuses the existing (already-built-for-a-different-purpose)
+        local_density() machinery, so the added cost is one extra cheap
+        radius_neighbors() call per detection -- NOT a full O(N)
+        propagate+embed+rebuild -- until this method actually says yes.
+
+        weighted_query_vec: the current detection's weighted identity
+            vector (same space/weights the tree was built in).
+        density_radius: radius to count neighbors within (reuse
+            DENSITY_RADIUS_MULTIPLE * drift_tolerance, the same radius
+            already used for the GNN's local_density feature -- keeps this
+            check calibrated consistently with the rest of the pipeline
+            rather than inventing a second, uncoordinated threshold).
+            Internally calls local_density(..., query_is_tree_member=False)
+            -- weighted_query_vec here is always a fresh, not-yet-registered
+            detection, never an existing tree member, so no self-match
+            needs to be subtracted off (see local_density's docstring for
+            why this distinction matters).
+        density_threshold: neighbor count at or above which this pocket is
+            considered dense enough to be at risk. Choosing this value is
+            a tradeoff, not a free parameter -- see the doc for how it was
+            picked and what happens if it's set too low (rebuild
+            thrashing, i.e. losing the ANN index's whole performance
+            benefit) or too high (silently reverting to the global-only
+            behavior this method exists to improve on).
+        min_detections_since_rebuild: don't bother triggering an early
+            rebuild for a tree that is still essentially fresh (avoids
+            rebuilding every single query in a dense region right after a
+            rebuild already just happened, when staleness hasn't had time
+            to accumulate yet).
+
+        Returns False (never triggers) if no tree exists yet -- that case
+        is already handled by needs_rebuild() returning True on the very
+        first query, so there is nothing this method needs to add there.
+        """
+        if self._tree is None:
+            return False
+        if self._detections_since_rebuild < min_detections_since_rebuild:
+            return False
+        density = self.local_density(weighted_query_vec, density_radius, query_is_tree_member=False)
+        return bool(density[0] >= density_threshold)
+
+    def query_density(self, weighted_query_vec, density_radius):
+        """
+        DIAGNOSTIC ONLY -- returns the raw local_density() count for a
+        fresh (non-tree-member) query, with no threshold comparison. Not
+        called anywhere in the decision path; exists purely so
+        ANN_DENSITY_REBUILD_THRESHOLD can be calibrated against real
+        measured density instead of guessed at (see
+        docs/ANN_DENSITY_AWARE_REBUILD.md, "Tuning
+        ANN_DENSITY_REBUILD_THRESHOLD"). Safe to remove once tuning is
+        done, or leave in as a permanent diagnostic hook -- it has no
+        effect on rebuild behavior either way.
+        """
+        if self._tree is None:
+            return 0
+        density = self.local_density(weighted_query_vec, density_radius, query_is_tree_member=False)
+        return int(density[0])
+
     def mark_dirty(self, cat_idx):
         """Call whenever a catalog slot's stored belief changes (EMA
         update) or a brand-new slot is appended, so it's guaranteed to be
@@ -289,7 +374,7 @@ class LiveCatalogANNIndex:
         return candidates
 
     # -----------------------------------------------------------------
-    def local_density(self, weighted_query_vecs, radius):
+    def local_density(self, weighted_query_vecs, radius, query_is_tree_member=True):
         """
         NEW (README section 4.2c): for each row in weighted_query_vecs
         (already propagated + embedded + distance-weighted, same space the
@@ -309,13 +394,32 @@ class LiveCatalogANNIndex:
         tolerance that makes the ANN candidate pool safe (module docstring,
         point 1) applies here too. Returns 0 for every row if no tree
         exists yet (e.g. very first detections before any rebuild).
+
+        query_is_tree_member: set True (default, preserves original
+        behavior) when weighted_query_vecs are vectors of objects already
+        IN the tree (e.g. catalog_gnn.py's per-candidate feature, or
+        ground_station_tracking_simulation.py's top5_density call) -- the
+        query will always find itself as a zero-distance neighbor, so that
+        self-match is subtracted off. Set False when weighted_query_vecs
+        are EXTERNAL vectors not present in the tree (e.g. a fresh,
+        not-yet-registered detection, as
+        needs_rebuild_for_query() uses) -- there is no self-match to
+        subtract in that case, and doing so anyway silently undercounts
+        real local density by one on every call. Getting this flag wrong
+        for an external-query caller was the root cause of
+        needs_rebuild_for_query() failing to ever trigger in initial
+        testing (see docs/ANN_DENSITY_AWARE_REBUILD.md, "Known issue
+        found during validation").
         """
         weighted_query_vecs = np.atleast_2d(weighted_query_vecs)
         if self._tree is None:
             return np.zeros(len(weighted_query_vecs), dtype=int)
         neighbor_lists = self._tree.radius_neighbors(weighted_query_vecs, radius=radius,
                                                        return_distance=False)
-        # subtract 1 per row for the query's own position when the query IS
-        # itself a catalog member (harmless over-subtraction -- floored at
-        # 0 -- when the query is a fresh detection not yet in the tree).
-        return np.array([max(0, len(nl) - 1) for nl in neighbor_lists], dtype=int)
+        if query_is_tree_member:
+            # subtract 1 per row for the query's own position (harmless
+            # floor at 0 if the query isn't actually a tree member, but
+            # should only be relied on when it genuinely is one -- see
+            # query_is_tree_member docstring above).
+            return np.array([max(0, len(nl) - 1) for nl in neighbor_lists], dtype=int)
+        return np.array([len(nl) for nl in neighbor_lists], dtype=int)

@@ -154,6 +154,38 @@ RECALIBRATION_CHANGE_FRACTION = 0.10
 # scale at inference time won't match what the model was trained on.
 DENSITY_RADIUS_MULTIPLE = gnn_mod.DENSITY_RADIUS_MULTIPLE
 
+# --- Density-aware early ANN rebuild (see docs/ANN_DENSITY_AWARE_REBUILD.md
+# for the full mechanism and how these values were chosen) ---
+# ANN_REBUILD_EVERY's staleness tolerance is calibrated against the
+# catalog's AVERAGE nearest-neighbor spacing (via DRIFT_TOLERANCE). A
+# locally dense pocket (e.g. a packed constellation shell) can have real
+# spacing far tighter than that average, so ordinary between-rebuild drift
+# that's safe everywhere else can push the true match out of the ANN
+# candidate pool entirely in that pocket. This block adds a second,
+# density-triggered rebuild check (leo_ann_index.needs_rebuild_for_query)
+# that fires independently of the detection-count cadence.
+ANN_DENSITY_AWARE_REBUILD_ENABLED = True
+
+# How many OTHER catalog objects within DENSITY_RADIUS_MULTIPLE *
+# drift_tolerance of a query counts as "dense enough to be at risk".
+# NOTE: this default is a reasoned starting point, not yet empirically
+# tuned against a labeled dense-shell run with this fix active -- see
+# docs/ANN_DENSITY_AWARE_REBUILD.md "Tuning ANN_DENSITY_REBUILD_THRESHOLD"
+# for how to calibrate it against your own catalog once you have real
+# before/after miss-rate data. Lower = more conservative (more early
+# rebuilds, safer, more overhead); higher = closer to the old global-only
+# behavior this option exists to improve on.
+ANN_DENSITY_REBUILD_THRESHOLD = 6
+
+# Don't fire the density trigger on a tree that was just rebuilt --
+# staleness hasn't had time to accumulate yet, so an early rebuild here
+# would only add overhead without fixing anything. Kept small (not 0)
+# because SOME drift is possible even one detection after a rebuild (the
+# catalog can grow/update between the rebuild and this query), but large
+# enough to avoid rebuild-thrashing on back-to-back dense-region queries
+# immediately after a rebuild already just ran.
+ANN_DENSITY_REBUILD_MIN_DETECTIONS = 5
+
 
 # ---------------------------------------------------------------------
 # Load embedding store
@@ -408,6 +440,9 @@ def main():
     ann_recall_checked = 0
     ann_recall_hit = 0
     gnn_invocation_log = []  # for compare_live_vs_training.py (README section 5.5)
+    density_triggered_rebuild_count = [0]  # see ANN_DENSITY_AWARE_REBUILD_ENABLED above
+    density_diagnostic_log = []  # DIAGNOSTIC ONLY -- see comment near query_density() call
+    total_detections_for_density_diag = [0]
 
     real_start = time.perf_counter()
 
@@ -477,7 +512,56 @@ def main():
         if n_cat > 0:
             weighted_detection_vec = detection_vec * distance_weights
 
-            if ann_index.needs_rebuild():
+            # Two independent rebuild triggers, OR'd together:
+            #  1. needs_rebuild() -- the existing global cadence (detection
+            #     count / overflow size), calibrated for average catalog
+            #     density (see leo_ann_index.py module docstring).
+            #  2. needs_rebuild_for_query() -- density-aware: is THIS
+            #     detection sitting in a locally dense pocket (e.g. a
+            #     packed constellation shell) where the global cadence's
+            #     staleness assumption doesn't hold, even though the global
+            #     trigger hasn't fired yet? See
+            #     docs/ANN_DENSITY_AWARE_REBUILD.md for the mechanism this
+            #     closes and why the global-only check was letting the true
+            #     match silently drop out of the candidate pool in dense
+            #     regions.
+            # Evaluated in this order so the (already-necessary) global
+            # check short-circuits the extra radius_neighbors() call on
+            # the common "tree doesn't exist yet" / "just rebuilt" paths.
+            global_rebuild_due = ann_index.needs_rebuild()
+            density_rebuild_due = (
+                not global_rebuild_due
+                and ANN_DENSITY_AWARE_REBUILD_ENABLED
+                and ann_index.needs_rebuild_for_query(
+                    weighted_detection_vec,
+                    density_radius=DENSITY_RADIUS_MULTIPLE * drift_tolerance,
+                    density_threshold=ANN_DENSITY_REBUILD_THRESHOLD,
+                    min_detections_since_rebuild=ANN_DENSITY_REBUILD_MIN_DETECTIONS,
+                )
+            )
+
+            # DIAGNOSTIC ONLY (see docs/ANN_DENSITY_AWARE_REBUILD.md,
+            # "Tuning ANN_DENSITY_REBUILD_THRESHOLD"): sample the raw
+            # density value on a subset of detections so the threshold can
+            # be calibrated against real numbers instead of guessed at
+            # again. No effect on rebuild behavior -- query_density() is
+            # never consulted by any decision. Sampled (not every
+            # detection) to keep the extra radius_neighbors() calls cheap
+            # over a 60k+ detection run.
+            if not global_rebuild_due and total_detections_for_density_diag[0] % 20 == 0:
+                _raw_density = ann_index.query_density(
+                    weighted_detection_vec, DENSITY_RADIUS_MULTIPLE * drift_tolerance,
+                )
+                density_diagnostic_log.append({
+                    "sim_time": float(real_now),
+                    "name": name,
+                    "raw_density": _raw_density,
+                })
+            total_detections_for_density_diag[0] += 1
+
+            if global_rebuild_due or density_rebuild_due:
+                if density_rebuild_due:
+                    density_triggered_rebuild_count[0] += 1
                 ann_index.rebuild(
                     cat_a, cat_e, cat_i, cat_raan, cat_argp, cat_bc,
                     cat_types, cat_sizes, cat_rcs, cat_epoch, real_now,
@@ -926,6 +1010,9 @@ def main():
               f"{gnn_overturn_correct}/{gnn_overturn_total} "
               f"({gnn_overturn_correct/gnn_overturn_total*100:.1f}%)")
     print(f"Final catalog size    : {len(cat_names)}  (active: {sum(1 for r in cat_retired if not r)})")
+    print(f"ANN index rebuilds     : {ann_index.n_rebuilds} total "
+          f"({density_triggered_rebuild_count[0]} density-triggered, "
+          f"{ann_index.n_rebuilds - density_triggered_rebuild_count[0]} cadence/overflow-triggered)")
     print("=" * 70)
 
     if gnn_invocation_log:
@@ -936,6 +1023,21 @@ def main():
         print(f"\nWrote {len(gnn_invocation_log)} live GNN invocations to "
               f"{LIVE_LOG_PATH} -- compare against a fresh training batch "
               f"with compare_live_vs_training.py.")
+
+    if density_diagnostic_log:
+        import json
+        density_log_path = str(Path(LIVE_LOG_PATH).parent / "ann_density_diagnostic.json")
+        with open(density_log_path, "w") as f:
+            json.dump(density_diagnostic_log, f)
+        raw_vals = [r["raw_density"] for r in density_diagnostic_log]
+        raw_sorted = sorted(raw_vals)
+        n = len(raw_sorted)
+        print(f"\n[DIAGNOSTIC] Wrote {n} sampled raw local-density readings to "
+              f"{density_log_path}")
+        print(f"[DIAGNOSTIC] raw_density distribution: "
+              f"min={raw_sorted[0]} p50={raw_sorted[n//2]} p90={raw_sorted[int(n*0.9)]} "
+              f"p95={raw_sorted[int(n*0.95)]} p99={raw_sorted[min(int(n*0.99), n-1)]} "
+              f"max={raw_sorted[-1]}  (current ANN_DENSITY_REBUILD_THRESHOLD={ANN_DENSITY_REBUILD_THRESHOLD})")
 
 
 if __name__ == "__main__":

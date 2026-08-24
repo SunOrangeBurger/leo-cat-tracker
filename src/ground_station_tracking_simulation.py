@@ -745,6 +745,7 @@ def main():
                 "decision": gnn_decision,
                 "n_cat": int(n_cat),
                 "true_object_in_pool": bool(_true_idx_for_log is not None and _true_idx_for_log in top5),
+                "true_object_in_ann_pool": bool(_true_idx_for_log is not None and _true_idx_for_log in candidate_idx),
             })
             if gnn_decision == "KNOWN":
                 accepted = True

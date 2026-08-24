@@ -166,15 +166,36 @@ DENSITY_RADIUS_MULTIPLE = gnn_mod.DENSITY_RADIUS_MULTIPLE
 # that fires independently of the detection-count cadence.
 ANN_DENSITY_AWARE_REBUILD_ENABLED = True
 
-# How many OTHER catalog objects within DENSITY_RADIUS_MULTIPLE *
-# drift_tolerance of a query counts as "dense enough to be at risk".
-# NOTE: this default is a reasoned starting point, not yet empirically
-# tuned against a labeled dense-shell run with this fix active -- see
+# --- Radius the density-rebuild check uses (see docs/ANN_DENSITY_AWARE_REBUILD.md,
+# "Second known issue: radius mismatch"). Deliberately a SEPARATE constant
+# from DENSITY_RADIUS_MULTIPLE (used for the GNN's local_density training
+# feature) rather than reusing it -- reusing it was the actual mistake in
+# the first version of this fix. Measured directly from this catalog's own
+# live GNN-consult distances (gnn_live_invocations.json's min_dist field,
+# same weighted embedding space): p10=0.221, median=0.315, out of a
+# DENSITY_RADIUS_MULTIPLE*drift_tolerance radius of only ~0.269 -- i.e. the
+# GNN-feature radius is tighter than the TYPICAL distance between a
+# detection and its closest real candidate, so almost nothing ever counted
+# as "nearby" by that radius, in the sparse background OR the dense shell.
+# ANN_DENSITY_REBUILD_RADIUS_MULTIPLE is calibrated instead directly off
+# drift_tolerance at a wider multiple, chosen to comfortably cover the
+# real observed candidate-distance range above (median 0.315) rather than
+# undershoot it. Re-tune this against your own catalog's real
+# gnn_live_invocations.json min_dist distribution if you regenerate the
+# dense shell with different width/density settings -- don't assume this
+# value transfers.
+ANN_DENSITY_REBUILD_RADIUS_MULTIPLE = 3.5
+
+# How many OTHER catalog objects within
+# ANN_DENSITY_REBUILD_RADIUS_MULTIPLE * drift_tolerance of a query counts
+# as "dense enough to be at risk". NOTE: this default is a reasoned
+# starting point, not yet empirically tuned against a labeled dense-shell
+# run with the corrected radius active -- see
 # docs/ANN_DENSITY_AWARE_REBUILD.md "Tuning ANN_DENSITY_REBUILD_THRESHOLD"
-# for how to calibrate it against your own catalog once you have real
-# before/after miss-rate data. Lower = more conservative (more early
-# rebuilds, safer, more overhead); higher = closer to the old global-only
-# behavior this option exists to improve on.
+# for how to calibrate it once you have real before/after miss-rate data
+# at this new radius. Lower = more conservative (more early rebuilds,
+# safer, more overhead); higher = closer to the old global-only behavior
+# this option exists to improve on.
 ANN_DENSITY_REBUILD_THRESHOLD = 6
 
 # Don't fire the density trigger on a tree that was just rebuilt --
@@ -534,7 +555,7 @@ def main():
                 and ANN_DENSITY_AWARE_REBUILD_ENABLED
                 and ann_index.needs_rebuild_for_query(
                     weighted_detection_vec,
-                    density_radius=DENSITY_RADIUS_MULTIPLE * drift_tolerance,
+                    density_radius=ANN_DENSITY_REBUILD_RADIUS_MULTIPLE * drift_tolerance,
                     density_threshold=ANN_DENSITY_REBUILD_THRESHOLD,
                     min_detections_since_rebuild=ANN_DENSITY_REBUILD_MIN_DETECTIONS,
                 )
@@ -550,7 +571,7 @@ def main():
             # over a 60k+ detection run.
             if not global_rebuild_due and total_detections_for_density_diag[0] % 20 == 0:
                 _raw_density = ann_index.query_density(
-                    weighted_detection_vec, DENSITY_RADIUS_MULTIPLE * drift_tolerance,
+                    weighted_detection_vec, ANN_DENSITY_REBUILD_RADIUS_MULTIPLE * drift_tolerance,
                 )
                 density_diagnostic_log.append({
                     "sim_time": float(real_now),

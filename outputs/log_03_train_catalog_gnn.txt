@@ -4,20 +4,20 @@ Embedding store: 11500 objects on record
 drift_tolerance=0.134739  margin_required=0.057745
 ----------------------------------------------------------------------
 Harvested 12470 live-loop examples over 2334523 simulated detection events (470 true-object-in-pool / 12000 genuinely-novel-in-pool).
-epoch    0  train_loss=2.8337  val_loss=2.7894  val_fp_rate(novel called known)=0.966  val_recall(known)=0.968
-epoch   25  train_loss=2.1857  val_loss=2.2347  val_fp_rate(novel called known)=0.000  val_recall(known)=0.000
-epoch   50  train_loss=1.8002  val_loss=1.9112  val_fp_rate(novel called known)=0.050  val_recall(known)=0.127
-epoch   75  train_loss=1.3593  val_loss=1.5024  val_fp_rate(novel called known)=0.125  val_recall(known)=0.381
-epoch  100  train_loss=0.9552  val_loss=1.1281  val_fp_rate(novel called known)=0.152  val_recall(known)=0.683
-epoch  125  train_loss=0.7393  val_loss=0.9224  val_fp_rate(novel called known)=0.157  val_recall(known)=0.778
-epoch  150  train_loss=0.6065  val_loss=0.8022  val_fp_rate(novel called known)=0.156  val_recall(known)=0.841
-epoch  175  train_loss=0.5052  val_loss=0.7585  val_fp_rate(novel called known)=0.136  val_recall(known)=0.841
-epoch  200  train_loss=0.4140  val_loss=0.7663  val_fp_rate(novel called known)=0.108  val_recall(known)=0.794
-epoch  225  train_loss=0.3405  val_loss=0.8285  val_fp_rate(novel called known)=0.094  val_recall(known)=0.746
-epoch  249  train_loss=0.2873  val_loss=0.9258  val_fp_rate(novel called known)=0.082  val_recall(known)=0.730
-Restoring best checkpoint: epoch 175 (val_loss=0.7585), vs. final epoch 249.
-  (sanity check: 74.6% of 63 held-out known examples score above confident_novel_threshold -- target was 90%. If this is far off target, known_best_scores is too small/noisy to trust; raise min_known_examples rather than adjusting thresholds off of it.)
-Calibrated thresholds: confident_known=0.8816 confident_novel=0.6154 (n_known_val=63, n_novel_val=1807)
-Saved trained catalog GNN to /home/arunhariharan/Projects/leo-catalog-tracker/outputs/catalog_gnn.pt (checkpoint from epoch 175)
+epoch    0  train_loss=2.6688  val_loss=2.6347  val_fp_rate(novel called known)=0.359  val_recall(known)=0.429
+epoch   25  train_loss=2.1127  val_loss=2.1441  val_fp_rate(novel called known)=0.000  val_recall(known)=0.000
+epoch   50  train_loss=1.6556  val_loss=1.7960  val_fp_rate(novel called known)=0.100  val_recall(known)=0.190
+epoch   75  train_loss=1.2057  val_loss=1.3702  val_fp_rate(novel called known)=0.141  val_recall(known)=0.508
+epoch  100  train_loss=0.9107  val_loss=1.1204  val_fp_rate(novel called known)=0.157  val_recall(known)=0.730
+epoch  125  train_loss=0.7329  val_loss=0.9472  val_fp_rate(novel called known)=0.162  val_recall(known)=0.778
+epoch  150  train_loss=0.6136  val_loss=0.8520  val_fp_rate(novel called known)=0.157  val_recall(known)=0.810
+epoch  175  train_loss=0.5146  val_loss=0.8086  val_fp_rate(novel called known)=0.147  val_recall(known)=0.857
+epoch  200  train_loss=0.4274  val_loss=0.8049  val_fp_rate(novel called known)=0.127  val_recall(known)=0.794
+epoch  225  train_loss=0.3550  val_loss=0.8426  val_fp_rate(novel called known)=0.107  val_recall(known)=0.714
+epoch  249  train_loss=0.3002  val_loss=0.9009  val_fp_rate(novel called known)=0.095  val_recall(known)=0.667
+Restoring best checkpoint: epoch 200 (val_loss=0.8049), vs. final epoch 249.
+  (sanity check: 68.3% of 63 held-out known examples score above confident_novel_threshold -- target was 90%. If this is far off target, known_best_scores is too small/noisy to trust; raise min_known_examples rather than adjusting thresholds off of it.)
+Calibrated thresholds: confident_known=0.8977 confident_novel=0.5870 (n_known_val=63, n_novel_val=1807)
+Saved trained catalog GNN to /home/arunhariharan/Projects/leo-catalog-tracker/outputs/catalog_gnn.pt (checkpoint from epoch 200)
 Done. Saved to /home/arunhariharan/Projects/leo-catalog-tracker/outputs/catalog_gnn.pt
-confident_known_threshold=0.8816  confident_novel_threshold=0.6154
+confident_known_threshold=0.8977  confident_novel_threshold=0.5870

@@ -1,8 +1,9 @@
 # Density-Aware ANN Rebuild: Root Cause and Fix
 
-**Status as of this writing:** implementation corrected after a validation
-run revealed the fix wasn't firing (see Section 7) — needs one more
-validation run against the corrected version before the before/after
+**Status as of this writing:** two implementation issues found and fixed
+during validation (Sections 7 and 8) — an off-by-one in density counting,
+then a radius that was too tight to ever observe real crowding. Needs one
+more validation run against both corrections before the before/after
 comparison in Section 6 can be trusted.
 
 ---
@@ -261,3 +262,45 @@ assumption again.
 
 The validation run described in Section 6 has not yet been re-run against
 this corrected version — that is the actual next step.
+
+## 8. Second known issue found during validation: radius mismatch
+
+After fixing the off-by-one bug in Section 7, the density trigger *still*
+fired zero times. A diagnostic (`query_density()`, sampling raw density
+readings on ~1/20 detections) showed why directly: real local density at
+the radius being used (`DENSITY_RADIUS_MULTIPLE * drift_tolerance ≈
+0.269`) maxed out at **3** across the entire 64,265-detection run —
+nowhere near `ANN_DENSITY_REBUILD_THRESHOLD = 6`. Raising the threshold
+would not have helped; the radius itself was too tight to ever observe
+meaningful crowding, in the shell or the background.
+
+**Root cause:** `DENSITY_RADIUS_MULTIPLE = 2.0` (from `catalog_gnn.py`)
+was reused on the assumption it would naturally capture shell crowding.
+It doesn't, because it was tuned for a different purpose — a GNN training
+feature meant to distinguish "extremely close" from "moderately close"
+candidates, not to measure whether a query sits in a broadly crowded
+region. Checked directly against `gnn_live_invocations.json`'s own
+`min_dist` values (the actual embedding-space distance from each live GNN
+consult to its nearest candidate, in the same weighted space
+`local_density()` operates in): the old radius (~0.269) only covered
+25.9% of real observed candidate distances — most real candidates,
+including in the dense shell, were simply farther away than the radius
+being searched.
+
+**Fix:** a new, separate constant, `ANN_DENSITY_REBUILD_RADIUS_MULTIPLE =
+3.5`, decoupled from `DENSITY_RADIUS_MULTIPLE` (which remains untouched
+and still governs the GNN training feature at its original call site).
+At `3.5 * drift_tolerance`, the radius covers 97.6% of the same real
+observed candidate-distance distribution.
+
+**This value is catalog-specific and was calibrated directly against this
+run's actual data — it is not a universal constant.** If the dense-shell
+catalog is regenerated with different width/density settings, or run
+against a different background catalog, recalibrate
+`ANN_DENSITY_REBUILD_RADIUS_MULTIPLE` the same way: pull `min_dist` from a
+fresh `gnn_live_invocations.json` and check what multiple of
+`drift_tolerance` covers the bulk of that distribution, rather than
+assuming this number transfers.
+
+The validation run has still not been completed against this
+second correction — that remains the next step.

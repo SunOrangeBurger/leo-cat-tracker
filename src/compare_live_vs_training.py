@@ -17,12 +17,15 @@ the gate thresholds, or the distance weights.
 Usage:
     1. Run ground_station_tracking_simulation.py (writes
        outputs/gnn_live_invocations.json if any GNN consultations happened).
-    2. Run this script -- it harvests a fresh batch via
+    2. Run this script -- it harvests a bounded fresh batch via
        catalog_gnn.harvest_live_loop_examples() using the SAME gate
        thresholds the live run used, and prints both distributions
-       side by side.
+       side by side. Use --fresh-examples and --max-events to control cost.
+       This diagnostic does not require the rare known-in-pool quota used
+       for model training; it reports when that class cannot be compared.
 """
 
+import argparse
 import json
 from pathlib import Path
 
@@ -47,6 +50,14 @@ def _percentiles(values, pcts=(1, 5, 10, 25, 50, 75, 90, 95, 99, 100)):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--fresh-examples", type=int, default=200,
+                        help="Maximum fresh decision examples to harvest (default: 200)")
+    parser.add_argument("--max-events", type=int, default=20000,
+                        help="Hard cap on simulated detection events (default: 20000)")
+    args = parser.parse_args()
+    if args.fresh_examples <= 0 or args.max_events <= 0:
+        parser.error("--fresh-examples and --max-events must be positive")
     try:
         with open(LIVE_LOG_PATH) as f:
             live_log = json.load(f)
@@ -94,9 +105,13 @@ def main():
             weighted_store_vectors, cat_i=store["elements_i"], cat_types=store["types"], cat_e=store["elements_e"],
         )
 
+    # This is a distribution diagnostic, not model calibration. Requiring
+    # rare known-in-pool examples here can make the full orchestrator appear
+    # to hang even when the live run contains no such examples to compare.
     fresh_examples = gnn_mod.harvest_live_loop_examples(
         truth_df, scalers, distance_weights, drift_tolerance, margin_required,
-        n_examples=min(len(live_log), 4000), seed=123,
+        n_examples=min(len(live_log), args.fresh_examples), seed=123,
+        min_known_examples=0, max_events=args.max_events,
     )
     fresh_known = [e for e in fresh_examples if e["label"].sum() > 0]
     fresh_novel = [e for e in fresh_examples if e["label"].sum() == 0]
@@ -105,6 +120,10 @@ def main():
 
     print(f"\nFresh harvested batch: {len(fresh_examples)} examples, "
           f"{len(fresh_known)} ({len(fresh_known)/max(1,len(fresh_examples))*100:.1f}%) true-object-in-pool.")
+    if not live_true_in_pool or not fresh_known:
+        print("Known-in-pool distribution comparison unavailable: at least one "
+              "sample has no known-in-pool cases. This diagnostic only tests "
+              "the novel branch for this run.")
     print("Fresh min_dist, true_object_in_pool=True:")
     print("  " + "  ".join(f"p{p}={v:.4f}" for p, v in _percentiles(fresh_min_dist_known).items()))
     print("Fresh min_dist, true_object_in_pool=False:")

@@ -227,6 +227,61 @@ def enumerate_joint_events(track_ids, det_ids, feasible):
         yield dict(zip(track_ids, combo))
 
 
+def jpda_marginals_exact(match_weights, miss_weight=0.08, clutter_weight=0.02):
+    """Exact local JPDA marginals by detection-mask dynamic programming.
+
+    ``match_weights[t, d]`` is zero for an infeasible gated edge and otherwise
+    includes detection probability times its measurement likelihood. Each
+    missed track receives ``miss_weight``; each unused detection receives
+    ``clutter_weight``. The common clutter factor cancels on normalization,
+    leaving O(n_tracks * n_detections * 2**n_detections) work instead of
+    materializing every joint event. This is intended for small clusters.
+    """
+    weights = np.asarray(match_weights, dtype=float)
+    if weights.ndim != 2 or np.any(weights < 0) or not np.isfinite(weights).all():
+        raise ValueError("match_weights must be a finite nonnegative matrix")
+    if miss_weight <= 0 or clutter_weight <= 0:
+        raise ValueError("miss and clutter weights must be positive")
+    n_tracks, n_dets = weights.shape
+    if n_dets > 20:
+        raise ValueError("exact JPDA detection-mask DP is limited to 20 detections")
+    if n_tracks == 0 or n_dets == 0:
+        return np.zeros_like(weights)
+    scaled = weights / clutter_weight
+    states = 1 << n_dets
+    forward = np.zeros((n_tracks + 1, states), dtype=float)
+    forward[0, 0] = 1.
+    for track in range(n_tracks):
+        for mask in range(states):
+            mass = forward[track, mask]
+            if mass == 0: continue
+            forward[track + 1, mask] += mass * miss_weight
+            for det in range(n_dets):
+                if not mask & (1 << det) and scaled[track, det] > 0:
+                    forward[track + 1, mask | (1 << det)] += mass * scaled[track, det]
+    backward = np.ones((n_tracks + 1, states), dtype=float)
+    for track in range(n_tracks - 1, -1, -1):
+        for mask in range(states):
+            total = miss_weight * backward[track + 1, mask]
+            for det in range(n_dets):
+                if not mask & (1 << det) and scaled[track, det] > 0:
+                    total += scaled[track, det] * backward[track + 1, mask | (1 << det)]
+            backward[track, mask] = total
+    normalizer = backward[0, 0]
+    if normalizer <= 0 or not np.isfinite(normalizer):
+        raise FloatingPointError("JPDA normalizer is not finite and positive")
+    beta = np.zeros_like(weights)
+    for track in range(n_tracks):
+        for mask in range(states):
+            mass = forward[track, mask]
+            if mass == 0: continue
+            for det in range(n_dets):
+                if not mask & (1 << det) and scaled[track, det] > 0:
+                    beta[track, det] += (mass * scaled[track, det]
+                                         * backward[track + 1, mask | (1 << det)])
+    return beta / normalizer
+
+
 def jpda_cluster_update(tracks_in_cluster, dets_in_cluster, det_vecs, det_true_names,
                          real_now, degraded_fallback_counter):
     """

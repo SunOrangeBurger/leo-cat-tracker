@@ -49,6 +49,7 @@ match timing is measured in genuine, unaccelerated wall-clock time.
 """
 
 import heapq
+import os
 import time
 import numpy as np
 import pandas as pd
@@ -81,10 +82,10 @@ FALLBACK_NPZ_PATH = str(REPO_ROOT / "outputs" / "leo_embeddings.npz")
 # defined here too (rather than only relied on as a bare string at the
 # write site below) so both scripts agree on the same anchored location
 # regardless of invocation cwd.
-LIVE_LOG_PATH = str(REPO_ROOT / "outputs" / "gnn_live_invocations.json")
+LIVE_LOG_PATH = os.environ.get("LEO_LIVE_LOG_PATH", str(REPO_ROOT / "outputs" / "gnn_live_invocations.json"))
 
 ACCELERATION_FACTOR = 300          # sim-seconds run this much faster than real orbital seconds
-SIMULATION_DURATION_SECONDS = 60   # simulated seconds to run
+SIMULATION_DURATION_SECONDS = float(os.environ.get("LEO_DURATION_SECONDS", "60"))
 
 # Matching gate -- set to None to auto-calibrate from the catalog's own
 # measured nearest-neighbor density at startup (recommended; see
@@ -103,12 +104,16 @@ ALPHA = 0.4
 PROCESS_NOISE = {"a_km": 0.05, "e": 0.00005, "i_deg": 0.002, "angle_deg": 0.01}
 MEASUREMENT_NOISE = {"a_km": 0.02, "e": 0.00002, "i_deg": 0.001, "angle_deg": 0.005}
 
-SEED = 11
+SEED = int(os.environ.get("LEO_SEED", "11"))
+ORACLE_FREE = os.environ.get("LEO_ORACLE_FREE", "0") == "1"
+ABLATION_MODE = os.environ.get("LEO_ABLATION_MODE", "full")
+if ABLATION_MODE not in {"full", "novel", "nearest"}:
+    raise ValueError("LEO_ABLATION_MODE must be full, novel, or nearest")
 
 # Second-opinion catalog GNN: when the fast threshold gate rejects a
 # plausible near-miss, consult catalog_gnn.py's three-way classifier
 # before giving up (README section 4.1).
-USE_GNN_CONFIRMATION = True
+USE_GNN_CONFIRMATION = ABLATION_MODE == "full"
 
 # Only consult the GNN when the gate-rejected candidate pool is plausibly a
 # near-miss (nearest candidate within this multiple of drift_tolerance),
@@ -324,6 +329,7 @@ def main():
     print(f"Simulated run length: {SIMULATION_DURATION_SECONDS}s (simulated)")
     print(f"Update corroboration required: {UPDATE_CONFIRMATIONS_REQUIRED} consecutive "
           f"matching accepts on the same slot before a belief-update commits")
+    print(f"Ablation mode: {ABLATION_MODE}; oracle-free decisions: {ORACLE_FREE}")
 
     # GNN training happens OFFLINE via train_catalog_gnn.py, not inline
     # here -- see that file's docstring for why. Load-only here: if no
@@ -445,6 +451,8 @@ def main():
     gnn_ambiguous_deferred = 0
     update_committed_count = 0
     update_withheld_count = 0
+    truth_confirm_checks = 0
+    existing_slot_corrections = 0
     retired_decayed_count = 0
     retired_unseen_count = 0
     merged_count_total = 0
@@ -482,8 +490,29 @@ def main():
             cat_epoch[cat_idx] = real_now
             return True
 
+        nonlocal truth_confirm_checks
         prior = pending_update.get(cat_idx)
-        if prior == true_object_name:
+        if ORACLE_FREE:
+            now_vec = embed_mod.transform_identity_vector(
+                meas_a, meas_e, meas_i, meas_raan, meas_argp,
+                cat_types[cat_idx], cat_sizes[cat_idx], cat_rcs[cat_idx], scalers)
+            if prior is not None:
+                old_elements, old_epoch = prior
+                pa, pe, pi, po, pw = op.propagate_catalog_analytic(
+                    np.array([old_elements[0]]), np.array([old_elements[1]]),
+                    np.array([old_elements[2]]), np.array([old_elements[3]]),
+                    np.array([old_elements[4]]), np.array([cat_bc[cat_idx]]),
+                    real_now - old_epoch)
+                old_vec = embed_mod.transform_identity_vector(
+                    pa[0], pe[0], pi[0], po[0], pw[0],
+                    cat_types[cat_idx], cat_sizes[cat_idx], cat_rcs[cat_idx], scalers)
+                corroborated = np.linalg.norm((old_vec - now_vec) * distance_weights) <= 3 * drift_tolerance
+            else:
+                corroborated = False
+        else:
+            truth_confirm_checks += 1
+            corroborated = prior == true_object_name
+        if corroborated:
             cat_a[cat_idx] = (1 - ALPHA) * prop_a_val + ALPHA * meas_a
             cat_e[cat_idx] = (1 - ALPHA) * prop_e_val + ALPHA * meas_e
             cat_i[cat_idx] = (1 - ALPHA) * prop_i_val + ALPHA * meas_i
@@ -493,7 +522,7 @@ def main():
             pending_update.pop(cat_idx, None)
             return True
         else:
-            pending_update[cat_idx] = true_object_name
+            pending_update[cat_idx] = ((meas_a, meas_e, meas_i, meas_raan, meas_argp), real_now) if ORACLE_FREE else true_object_name
             return False
 
     while heap:
@@ -758,6 +787,10 @@ def main():
             else:  # NOVEL
                 gnn_confirmed_novel += 1
 
+        if not accepted and ABLATION_MODE == "nearest" and len(candidate_idx) > 0 and gnn_plausible:
+            accepted = True
+            accept_path = "nearest"
+
         if not accepted and not deferred_ambiguous:
             # Confirmed NOVEL -- by the gate, and by the GNN if consulted
             # and it also said NOVEL (or wasn't plausible enough to
@@ -765,8 +798,9 @@ def main():
             # whether this true object was already discovered on an
             # earlier pass -- if so, correct that existing entry instead
             # of spawning a second identity for the same physical object.
-            existing_idx = true_name_to_idx.get(name)
+            existing_idx = None if ORACLE_FREE else true_name_to_idx.get(name)
             if existing_idx is not None and existing_idx < len(cat_names):
+                existing_slot_corrections += 1
                 gnn_registered = False
                 best_idx = existing_idx
                 accepted = True
@@ -873,6 +907,8 @@ def main():
                 path_flag = f"  [GNN->KNOWN, update {commit_tag}]"
             elif accept_path == "existing_slot":
                 path_flag = f"  [existing-slot correction, update {commit_tag}]"
+            elif accept_path == "nearest":
+                path_flag = f"  [nearest fallback, update {commit_tag}]"
 
         print(f"[T+{sim_time:7.2f}s sim] {name:<20} -> {status:<10} "
               f"(dist={best_dist:.3f}, margin={margin:.3f}, lookup {elapsed_us:.2f} us){flag}{path_flag}")
@@ -1007,6 +1043,7 @@ def main():
     print(f"NOT KNOWN (novel)     : {unknown_count} ({unknown_count/total_detections*100:.1f}%)")
     print(f"Real wall time        : {real_elapsed:.2f}s")
     print(f"Update commits        : {update_committed_count}  withheld: {update_withheld_count}")
+    print(f"Truth-confirmation checks: {truth_confirm_checks}; existing-slot corrections: {existing_slot_corrections}")
     print(f"Retired (decayed)     : {retired_decayed_count}  (unseen): {retired_unseen_count}")
     print(f"Merged (de-dup)       : {merged_count_total}")
     print()

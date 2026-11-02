@@ -1,0 +1,107 @@
+{
+  "history_gnn": {
+    "total_novel_future_correct": 345,
+    "total_novel_future_wrong": 146,
+    "mixed_identity_confirmations": 418,
+    "total_confirmed_tracks": 811,
+    "seed_mean_track_purity": [
+      0.8056801769100481,
+      0.7876538343365416,
+      0.8219187690133166
+    ]
+  },
+  "history_jpda": {
+    "total_novel_future_correct": 454,
+    "total_novel_future_wrong": 421,
+    "mixed_identity_confirmations": 433,
+    "total_confirmed_tracks": 830,
+    "seed_mean_track_purity": [
+      0.7722207378206161,
+      0.7566201246733625,
+      0.7878898762129074
+    ]
+  },
+  "graph_ablations": {
+    "history_no_messages": [
+      -0.009588771390157924,
+      -0.021092628878978132,
+      0.0019570951537902863
+    ],
+    "current_frame_graph": [
+      0.013882999167911091,
+      0.0019175555005016285,
+      0.026671302792621185
+    ],
+    "history_tabular": [
+      0.019235533458739795,
+      0.006324906868926553,
+      0.03144930881993943
+    ]
+  },
+  "retrospective_matched_test_risk": {
+    "0.02": {
+      "bracketed_seeds": [
+        211,
+        212,
+        213,
+        214,
+        215,
+        216,
+        217,
+        218,
+        219,
+        220
+      ],
+      "differences": [
+        0.02164744176584274,
+        -0.00377095919695139,
+        0.027318748017900574,
+        0.050789610389610385,
+        -0.02114437168693483,
+        0.06592829250976215,
+        0.029661820039949834,
+        0.015959682108935835,
+        0.027651808047737085,
+        -0.012223916669043218
+      ],
+      "interval": [
+        0.02018181553268092,
+        0.004788943017067615,
+        0.03616848483528171
+      ],
+      "note": "retrospective trajectory interpolation, no extrapolation or deployed test-label tuning"
+    },
+    "0.05": {
+      "bracketed_seeds": [
+        211,
+        212,
+        213,
+        214,
+        215,
+        216,
+        217,
+        218,
+        219,
+        220
+      ],
+      "differences": [
+        0.0340603852160333,
+        0.0050850873264666335,
+        0.04960500619739422,
+        0.08273792723846048,
+        0.01878969016587806,
+        0.11641041001064964,
+        0.06410131969352689,
+        -0.002449245410222761,
+        0.055791676474645474,
+        -0.014180082966507607
+      ],
+      "interval": [
+        0.04099521739463243,
+        0.01841900447883225,
+        0.0661687376173793
+      ],
+      "note": "retrospective trajectory interpolation, no extrapolation or deployed test-label tuning"
+    }
+  }
+}

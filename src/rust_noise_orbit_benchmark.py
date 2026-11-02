@@ -39,18 +39,18 @@ def propagate_circular(states, dt_seconds):
     return np.column_stack([r, v])
 
 
-def catalog_from_bootstrap(df, raw, ids, t, chosen_ids):
+def catalog_from_bootstrap(df, raw, ids, t, chosen_ids, propagator=propagate_circular):
     catalog = []
     for oid in chosen_ids:
         idx = np.flatnonzero((ids == oid) & (t < 600))
         # Undo each observation's circular motion, then average the noisy
         # states. Identity labels are used here to seed a warm catalog only.
-        back = propagate_circular(raw[idx], -t[idx])
+        back = propagator(raw[idx], -t[idx])
         catalog.append(np.median(back, axis=0))
     return np.asarray(catalog)
 
 
-def retrieve(raw, t, catalog0, scale):
+def retrieve(raw, t, catalog0, scale, propagator=propagate_circular):
     """Time-batched KD-tree retrieval over propagated 6-D catalog states."""
     n, k = len(raw), K
     pos = np.empty((n, k), dtype=int)
@@ -58,7 +58,7 @@ def retrieve(raw, t, catalog0, scale):
     query = (raw / scale).astype(np.float32)
     for epoch in np.unique(t):
         rows = np.flatnonzero(t == epoch)
-        pred = propagate_circular(catalog0, np.full(len(catalog0), epoch)) / scale
+        pred = propagator(catalog0, np.full(len(catalog0), epoch)) / scale
         nn = NearestNeighbors(n_neighbors=k, algorithm="kd_tree").fit(pred)
         _, local = nn.kneighbors(query[rows])
         pos[rows] = local
@@ -88,7 +88,9 @@ def tabular_inputs(query, candidates):
     return np.concatenate([residual, d2[..., None], all_distances, rank], axis=2).reshape(-1, 13)
 
 
-def jpda_map_fallback(d2, positions, detections, tracks, gate_sq=25.0):
+def jpda_map_fallback(d2, positions, detections, tracks, gate_sq=25.0,
+                      detection_weight=.92, miss_weight=.08, clutter_weight=.02,
+                      likelihood_scale=None):
     """One-to-one MAP event under the same miss/clutter weights as JPDA.
 
     Returns ``(detection_index, local_candidate_index)`` associations.
@@ -102,11 +104,12 @@ def jpda_map_fallback(d2, positions, detections, tracks, gate_sq=25.0):
     cost[:, len(ts):] = 0.
     # Relative to a missed track and clutter detection, a match has odds
     # 0.92*exp(-d2/2)/(0.08*0.02). The assignment minimizes negative log odds.
-    log_prior_odds = np.log(.92 / (.08 * .02))
+    log_prior_odds = np.log(detection_weight / (miss_weight * clutter_weight))
     for row, di in enumerate(dets):
         for j, track in enumerate(positions[di]):
             if d2[di, j] <= gate_sq and int(track) in lookup:
-                cost[row, lookup[int(track)]] = .5 * d2[di, j] - log_prior_odds
+                adjustment=0. if likelihood_scale is None else -np.log(likelihood_scale[di,j])
+                cost[row, lookup[int(track)]] = .5 * d2[di, j] - log_prior_odds+adjustment
     rows, cols = linear_sum_assignment(cost)
     associations = []
     for row, col in zip(rows, cols):
@@ -119,7 +122,9 @@ def jpda_map_fallback(d2, positions, detections, tracks, gate_sq=25.0):
 
 def jpda_probabilities(query, cand, positions, groups, gate_sq=25.0,
                        max_exact_detections=None, max_exact_tracks=32,
-                       fallback_policy="greedy", diagnostics=None):
+                       fallback_policy="greedy", diagnostics=None,
+                       detection_weight=.92, miss_weight=.08, clutter_weight=.02,
+                       likelihood_scale=None):
     """Local JPDA on a shared candidate pool.
 
     The default eight-object cap and greedy fallback preserve the archived
@@ -127,6 +132,10 @@ def jpda_probabilities(query, cand, positions, groups, gate_sq=25.0,
     cap and one-to-one MAP fallback, both logged via ``diagnostics``.
     """
     probabilities = np.zeros((len(query), K), float)
+    if likelihood_scale is not None:
+        likelihood_scale=np.asarray(likelihood_scale,float)
+        if likelihood_scale.shape != probabilities.shape or not np.isfinite(likelihood_scale).all() or np.any(likelihood_scale<=0):
+            raise ValueError('likelihood scale must be finite, positive, and match candidate shape')
     d2 = np.sum((query[:, None, :] - cand)**2, axis=2)
     fallbacks = 0
     for event_indices in groups.values():
@@ -163,7 +172,8 @@ def jpda_probabilities(query, cand, positions, groups, gate_sq=25.0,
                 if diagnostics is not None:
                     diagnostics.setdefault("fallback_cluster_sizes", []).append([len(ts), len(ds)])
                 if fallback_policy == "map":
-                    for di, j in jpda_map_fallback(d2, positions, ds, ts, gate_sq):
+                    for di, j in jpda_map_fallback(d2, positions, ds, ts, gate_sq,
+                            detection_weight, miss_weight, clutter_weight,likelihood_scale):
                         probabilities[di, j] = np.exp(-.5 * d2[di, j])
                 elif fallback_policy == "greedy":
                     for di in ds:
@@ -179,8 +189,9 @@ def jpda_probabilities(query, cand, positions, groups, gate_sq=25.0,
             for dj, di in enumerate(ds):
                 for j, cat_idx in enumerate(positions[di]):
                     if d2[di, j] <= gate_sq and int(cat_idx) in track_local:
-                        match[track_local[int(cat_idx)], dj] = .92 * np.exp(-.5 * d2[di, j])
-            beta = jpda_marginals_exact(match, miss_weight=.08, clutter_weight=.02)
+                        factor=1. if likelihood_scale is None else likelihood_scale[di,j]
+                        match[track_local[int(cat_idx)], dj] = detection_weight * np.exp(-.5 * d2[di, j])*factor
+            beta = jpda_marginals_exact(match, miss_weight=miss_weight, clutter_weight=clutter_weight)
             for ti, cat_idx in enumerate(ts):
                 for dj, di in enumerate(ds):
                     local = np.flatnonzero(positions[di] == cat_idx)

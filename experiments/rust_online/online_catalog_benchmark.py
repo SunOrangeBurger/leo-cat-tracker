@@ -51,22 +51,22 @@ def physics_tabular_inputs(query, candidates, scale):
     return features.reshape(-1, features.shape[-1]).astype(np.float32)
 
 
-def prepare_models(df, seed):
+def prepare_models(df, seed, propagator=propagate_circular):
     raw = df[["x_km", "y_km", "z_km", "vx_km_s", "vy_km_s", "vz_km_s"]].to_numpy(float)
     ids, t = df.truth_id.to_numpy(), df.t_s.to_numpy()
     rng = np.random.default_rng(seed)
     available = np.unique(ids[t < 600])
     catalog_ids = np.sort(rng.choice(available, len(available) // 2, replace=False))
-    catalog0 = catalog_from_bootstrap(df, raw, ids, t, catalog_ids)
+    catalog0 = catalog_from_bootstrap(df, raw, ids, t, catalog_ids, propagator=propagator)
     train = (t >= 600) & (t < 1200)
     validation = (t >= 1200) & (t < 1600)
     known_train = train & np.isin(ids, catalog_ids)
     lookup = {oid: j for j, oid in enumerate(catalog_ids)}
-    pred = np.asarray([propagate_circular(catalog0[[lookup[ids[i]]]], np.array([t[i]]))[0]
+    pred = np.asarray([propagator(catalog0[[lookup[ids[i]]]], np.array([t[i]]))[0]
                        for i in np.flatnonzero(known_train)])
     residual = raw[known_train] - pred
     scale = np.maximum(np.std(residual, axis=0), [.1, .1, .1, .0001, .0001, .0001])
-    query, cand, positions = retrieve(raw, t, catalog0, scale)
+    query, cand, positions = retrieve(raw, t, catalog0, scale, propagator=propagator)
     labels = (catalog_ids[positions[train]] == ids[train, None]).astype(np.float32)
     node, edge = graph_inputs(query[train], cand[train])
     gnn = train_gnn(node, edge, labels, seed=seed)
